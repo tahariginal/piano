@@ -1,0 +1,29 @@
+{
+  "name": "piano",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "pnpm dlx serve out",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ./tests/resolve-ts.mjs --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "next": "16.3.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/three": "0.187.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "~5.9.0"
+  }
+}

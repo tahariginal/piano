@@ -1,0 +1,17 @@
+Salamander Grand Piano V3
+Author: Alexander Holm
+Instrument: Yamaha C5 grand piano, recorded with two AKG C414 in AB position.
+Source: https://sfzinstruments.github.io/pianos/salamander/
+Archive used: SalamanderGrandPianoV3+20161209_44khz16bit.tar.xz (freepats.zenvoid.org)
+
+License: Creative Commons Attribution 3.0 Unported (CC BY 3.0)
+https://creativecommons.org/licenses/by/3.0/
+
+Changes made for the web (this folder):
+- 21 of the original recordings: velocity layer 10 of 16 for C, D#, F# and A from C2 to C7
+  (files named Ds = D#, Fs = F#).
+- Same +4.5 dB gain on every file (peaks at about -1.2 dBFS; relative levels kept).
+- Shortened to 10 s (octave 2) down to 4.5 s (octave 7), with a 1.6 s fade-out.
+- Encoded to MP3 (LAME VBR quality 4, 44.1 kHz stereo).
+- Pitch is unchanged. Measured fundamentals: A4 = 440.0 Hz, C4 +0.8 cents, C2 -11.5 cents,
+  C7 +23.6 cents. This is the stretch tuning of the original instrument.
