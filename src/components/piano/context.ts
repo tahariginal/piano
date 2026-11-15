@@ -19,6 +19,10 @@ export type PianoState = {
   /** Start or resume audio. Call from a user gesture. */
   enable: () => void;
   setTargets: (midis: readonly number[]) => void;
+  keyFeedback: Readonly<Record<number, "correct" | "wrong">>;
+  feedbackKey: (midi: number, correct: boolean) => void;
+  clearFeedback: () => void;
+  focusKeyboard: () => void;
 };
 
 export const PianoContext = createContext<PianoState | null>(null);

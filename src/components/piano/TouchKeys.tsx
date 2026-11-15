@@ -19,7 +19,7 @@ const BLACK_AT: Record<number, { after: number; nudge: number }> = {
  * Multi-touch plays chords; sliding a finger glides across keys.
  */
 export default function TouchKeys() {
-  const { ctrl, ready, controls, active, targets, enable } = usePiano();
+  const { ctrl, ready, controls, active, targets, enable, keyFeedback } = usePiano();
   const box = useRef<HTMLDivElement>(null);
   const lastPress = useRef(-Infinity);
   const clicks = useRef(0);
@@ -64,6 +64,8 @@ export default function TouchKeys() {
   const label = (m: number) => `${solfege(m)}, ${noteName(m)}`;
 
   const keyClass = (midi: number) => {
+    if (keyFeedback[midi] === "correct") return "bg-[#22c55e]";
+    if (keyFeedback[midi] === "wrong") return "bg-[#b95b5b]";
     const on = active.includes(midi);
     const target = targets.includes(midi);
     if (isBlack(midi)) return on ? "bg-accent-deep" : target ? "bg-[#10151f] outline outline-1 -outline-offset-2 outline-accent" : "bg-[#0b0b0b]";
@@ -74,7 +76,7 @@ export default function TouchKeys() {
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-4">
         <p className="label text-fg-3">
-          Keys <span className="text-fg">1–8</span> · <span className="text-fg">⇧</span> for black keys
+          Keys <span className="text-fg">1–8</span> · <span className="text-fg">X C V B N</span> for black keys
         </p>
         <div className="flex items-center gap-1" role="group" aria-label="Octave">
           <button

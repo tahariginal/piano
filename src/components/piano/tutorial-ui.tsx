@@ -7,7 +7,7 @@ import { Player } from "@/lib/piano/player";
 import type { TimedEvent } from "@/lib/piano/timeline";
 import type { Feedback } from "@/lib/piano/tutorial";
 
-/** The key that plays `midi` in octave 4, which is where lessons live: "1", "⇧2"… */
+/** The key that plays `midi` in octave 4, which is where lessons live: "1", "C"… */
 export const lessonKey = (midi: number) => shortcutFor(midi, 4) ?? shortcutFor(midi, octaveOf(midi)) ?? noteName(midi);
 
 /** How to reach `midi` from the current octave, if the number row cannot. */

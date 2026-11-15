@@ -33,6 +33,7 @@ export class PianoController {
   private holders = new Map<string, Held>();
   private count = new Map<number, number>();
   private noteListeners = new Set<Listener>();
+  private inputListeners = new Set<Listener>();
   private stateListeners = new Set<(s: ControlState) => void>();
   /** Latched sustain (the toggle) and the held pedal (Space) combine. */
   private state: ControlState = { octave: DEFAULT_OCTAVE, sustain: false, pedal: false };
@@ -54,6 +55,16 @@ export class PianoController {
     return () => {
       this.stateListeners.delete(fn);
     };
+  }
+
+  /** Every learner gesture, even when a demo already holds the same pitch. */
+  onInput(fn: Listener) {
+    this.inputListeners.add(fn);
+    return () => { this.inputListeners.delete(fn); };
+  }
+
+  get liveActive(): number[] {
+    return [...new Set([...this.holders.values()].filter((h) => isLive(h.source)).map((h) => h.midi))];
   }
 
   get controls() {
@@ -83,7 +94,10 @@ export class PianoController {
     this.holders.set(holder, rec);
     const n = this.count.get(midi) ?? 0;
     this.count.set(midi, n + 1);
-    if (n > 0) return false; // already sounding from another input
+    if (n > 0) {
+      if (isLive(source)) this.emitInput("on", midi, velocity, source);
+      return false; // already sounding from another input
+    }
     this.engine.noteOn(midi, velocity, at);
     const on: NoteEvent = { type: "on", midi, velocity, source, time: 0 };
     const delay = at === undefined ? 0 : (at - this.engine.now) * 1000;
@@ -91,6 +105,7 @@ export class PianoController {
     else {
       rec.pending = { id: window.setTimeout(() => (rec.pending = undefined, this.emit(on)), delay), event: on };
     }
+    if (isLive(source)) this.emitInput("on", midi, velocity, source);
     return true;
   }
 
@@ -99,6 +114,7 @@ export class PianoController {
     const h = this.holders.get(holder);
     if (!h) return;
     this.holders.delete(holder);
+    if (isLive(h.source)) this.emitInput("off", h.midi, 0, h.source);
     const n = (this.count.get(h.midi) ?? 1) - 1;
     if (h.pending) {
       window.clearTimeout(h.pending.id);
@@ -154,9 +170,15 @@ export class PianoController {
     this.noteListeners.forEach((fn) => fn(e));
   }
 
+  private emitInput(type: "on" | "off", midi: number, velocity: number, source: Source) {
+    const e = { type, midi, velocity, source, time: performance.now() };
+    this.inputListeners.forEach((fn) => fn(e));
+  }
+
   dispose() {
     this.releaseAll();
     this.noteListeners.clear();
+    this.inputListeners.clear();
     this.stateListeners.clear();
   }
 }

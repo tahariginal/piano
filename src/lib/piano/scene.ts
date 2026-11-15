@@ -26,6 +26,7 @@ import {
   PointsMaterial,
   Raycaster,
   Scene,
+  type Sprite,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -36,8 +37,9 @@ import {
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { buildCase, CASE_W, STRING_SEGMENTS } from "./model-case";
 import { buildKeys, KEY_TOP, keyX, PITCH, type KeyRig } from "./model-keys";
-import { cOf, inRange, isBlack, shortcutFor, windowNotes } from "./notes";
-import { makeLabel, radialTexture } from "./scene-labels";
+import { cOf, inRange, isBlack, noteName, shortcutFor, windowNotes } from "./notes";
+import { keyInstruction } from "./learning";
+import { makeKeyCue, makeLabel, radialTexture } from "./scene-labels";
 
 export type PianoSceneOptions = {
   canvas: HTMLCanvasElement;
@@ -53,6 +55,8 @@ export type PianoSceneOptions = {
   onLift: (pointerId: number) => void;
   onHover?: (midi: number | null) => void;
   onViewChange?: (moved: boolean) => void;
+  /** The zoom level the view is heading to: 1 frames the view, 2 is twice as close. */
+  onZoom?: (zoom: number) => void;
   onContextLost?: (lost: boolean) => void;
 };
 
@@ -63,6 +67,10 @@ export type PianoSceneHandle = {
   setSustain(on: boolean): void;
   setOctave(octave: number): void;
   setTargets(midis: readonly number[]): void;
+  feedback(midi: number, correct: boolean): void;
+  clearFeedback(): void;
+  /** Zoom by `factor`, keeping the middle of the view where it is. */
+  zoomBy(factor: number): void;
   /** "piano" frames the whole instrument; "keys" glides down to the keyboard for close play. */
   setView(view: PianoView): void;
   resetView(): void;
@@ -76,6 +84,9 @@ const VIEWS: Record<PianoView, { az: number; el: number }> = { piano: { az: AZ0,
 const AZ_RANGE = 0.8;
 const EL_MIN = 0.28;
 const EL_MAX = 1.12;
+/** Zoom limits: a little room around the framed view, out to four times closer. */
+const ZOOM_MIN = 0.6;
+const ZOOM_MAX = 4;
 
 export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
   // Throws when WebGL is unavailable; the caller falls back to the 2D keys.
@@ -132,8 +143,12 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
   const bar = { x: 0, w: 0, tx: 0, tw: 0 };
 
   // Key numbers 1–8 printed on the fallboard above the white keys of the current octave.
-  const whiteWindow = (oct: number) => windowNotes(oct).filter((m) => !isBlack(m));
-  const labelMeshes = whiteWindow(4).map((m) => makeLabel(shortcutFor(m, 4) ?? "", o.font, 0.019));
+  // White-key numbers on one row; the black-key letters on a row above, between them.
+  const labelMeshes = windowNotes(4).map((m) => {
+    const label = makeLabel(shortcutFor(m, 4) ?? "", o.font, isBlack(m) ? 0.016 : 0.019);
+    label.position.y = isBlack(m) ? 0.019 : 0;
+    return label;
+  });
   labelMeshes.forEach((l) => body.fallFace.add(l));
   const fgC = new Color(o.colors.fg);
   const accentC = new Color(o.colors.accentLight);
@@ -147,6 +162,17 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
   let octave = 4;
   let targets: number[] = [];
   let targetSet = new Set<number>();
+  const feedback = new Map<number, { correct: boolean; until: number }>();
+  const cues = new Map<number, Sprite>();
+  const blue = new Color(0x1685ff), green = new Color(0x22c55e), red = new Color(0xef4444);
+  const whiteBase = new Color(0xe6e0d6), blackBase = new Color(0x0b0b0b);
+  let zoom = 1, targetZoom = 1;
+  // Zoomed in, the view can travel: an offset from the framed centre, in camera-space world units.
+  const pan = { x: 0, y: 0 };
+  // While a zoom glides, this point of the scene stays under this pixel (the pointer, or the view's middle).
+  let anchor: { wx: number; wy: number; px: number; py: number } | null = null;
+  // The last fit: world units per CSS pixel, and the view centre.
+  let scale = 1, viewX = 0, viewY = 0;
   let pulse = 0;
   let activity = 0;
   const strings = new Map<number, { e: number; head: number; held: boolean }>();
@@ -218,9 +244,23 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
     const availW = Math.max(40, W - p.left - p.right);
     const availH = Math.max(40, H - p.top - p.bottom);
     // World units per CSS pixel, so the box fits both ways with a small margin.
-    const s = Math.max((x1 - x0) / availW, (y1 - y0) / availH) * 1.04;
-    const cx = (x0 + x1) / 2 - ((p.left - p.right) / 2) * s;
-    const cy = (y0 + y1) / 2 + ((p.top - p.bottom) / 2) * s;
+    const s = Math.max((x1 - x0) / availW, (y1 - y0) / availH) * 1.04 / zoom;
+    let cx = (x0 + x1) / 2 - ((p.left - p.right) / 2) * s;
+    let cy = (y0 + y1) / 2 + ((p.top - p.bottom) / 2) * s;
+    if (anchor) {
+      pan.x = anchor.wx - (anchor.px - W / 2) * s - cx;
+      pan.y = anchor.wy - (H / 2 - anchor.py) * s - cy;
+    }
+    // The view may travel only as far as the framed box's edge: none at all once it fits again.
+    const mx = Math.max(0, (x1 - x0 - availW * s) / 2);
+    const my = Math.max(0, (y1 - y0 - availH * s) / 2);
+    pan.x = Math.min(mx, Math.max(-mx, pan.x));
+    pan.y = Math.min(my, Math.max(-my, pan.y));
+    cx += pan.x;
+    cy += pan.y;
+    scale = s;
+    viewX = cx;
+    viewY = cy;
     camera.left = cx - (W / 2) * s;
     camera.right = cx + (W / 2) * s;
     camera.top = cy + (H / 2) * s;
@@ -271,11 +311,19 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
     const before = r.glow;
     r.glow += (glowTarget - r.glow) * (1 - Math.exp(-dt * (r.target > 0 ? 3 : 7)));
     if (Math.abs(r.glow - glowTarget) < 0.003) r.glow = glowTarget;
-    const aim = targetSet.has(r.midi) ? (r.black ? 0.55 : 0.16) : 0;
+    let result = feedback.get(r.midi);
+    if (result && performance.now() >= result.until) { feedback.delete(r.midi); result = undefined; }
+    const guided = targetSet.has(r.midi);
+    const tint = result ? (result.correct ? green : red) : blue;
+    r.material.color.copy(r.black ? blackBase : whiteBase);
+    if (result || guided) r.material.color.lerp(tint, result && !result.correct ? 0.45 : 0.8);
+    if (guided || result?.correct) r.material.color.copy(tint).multiplyScalar(0.3);
+    r.material.emissive.copy(tint);
+    const aim = result || guided ? (result && !result.correct ? 0.4 : 0.95) : 0;
     r.material.emissiveIntensity = Math.max(aim, r.glow * (r.black ? 1.5 : 0.62)) + r.hover * (r.black ? 0.25 : 0.06);
     const d = body.dampers.get(r.midi);
     if (d) d.position.y = (d.userData.y0 as number) + Math.max(Math.min(1, r.p), sustain) * 0.011;
-    return moving || r.glow !== before;
+    return moving || r.glow !== before || !!result;
   };
 
   const stepStrings = (dt: number) => {
@@ -363,6 +411,12 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
     // View focus (piano ↔ keys) and the key numbers that only read up close.
     const focusT = view === "keys" ? 1 : 0;
     let refit = false;
+    if (zoom !== targetZoom) {
+      zoom = reduced ? targetZoom : zoom + (targetZoom - zoom) * (1 - Math.exp(-dt * 9));
+      if (Math.abs(zoom - targetZoom) < 0.001) zoom = targetZoom;
+      refit = true;
+      animating = true;
+    }
     if (focus !== focusT) {
       focus = reduced ? focusT : focus + (focusT - focus) * (1 - Math.exp(-dt * 5));
       if (Math.abs(focus - focusT) < 0.002) focus = focusT;
@@ -385,6 +439,7 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
       cam.el = cam.tel;
       fit();
     } else if (refit) fit();
+    if (zoom === targetZoom) anchor = null;
 
     renderer.render(scene, camera);
     // Adaptive quality: if continuous animation runs below ~40 fps, drop to 1× pixel ratio.
@@ -492,6 +547,32 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
     e.preventDefault();
     o.onContextLost?.(true);
   };
+  /** Zoom by `factor` around a canvas pixel; by default the middle of the free area. */
+  const zoomAt = (factor: number, px?: number, py?: number) => {
+    const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, targetZoom * factor));
+    if (next === targetZoom) return;
+    const p = o.padding();
+    px ??= p.left + Math.max(40, W - p.left - p.right) / 2;
+    py ??= p.top + Math.max(40, H - p.top - p.bottom) / 2;
+    anchor = { wx: viewX + (px - W / 2) * scale, wy: viewY + (H / 2 - py) * scale, px, py };
+    targetZoom = next;
+    o.onZoom?.(next);
+    o.onViewChange?.(true);
+    invalidate();
+  };
+  /** Back to the framed view; the travel shrinks back to nothing as the zoom glides out. */
+  const unzoom = () => {
+    anchor = null;
+    targetZoom = 1;
+    o.onZoom?.(1);
+  };
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    const r = o.canvas.getBoundingClientRect();
+    // Lines and pages (Firefox) become pixels; a trackpad pinch arrives as Ctrl + small deltas.
+    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? H : 1);
+    zoomAt(Math.exp(-Math.max(-100, Math.min(100, dy)) * (e.ctrlKey ? 0.01 : 0.002)), e.clientX - r.left, e.clientY - r.top);
+  };
   const onRestored = () => {
     o.onContextLost?.(false);
     resize();
@@ -507,6 +588,7 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
   };
 
   o.canvas.addEventListener("pointerdown", onDown);
+  o.canvas.addEventListener("wheel", onWheel, { passive: false });
   o.canvas.addEventListener("pointermove", onMove);
   o.canvas.addEventListener("pointerup", onUp);
   o.canvas.addEventListener("pointercancel", onUp);
@@ -521,7 +603,7 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
 
   // ---------------------------------------------------------------- api
   const placeLabels = () => {
-    const notes = whiteWindow(octave);
+    const notes = windowNotes(octave);
     labelMeshes.forEach((label, i) => {
       const midi = notes[i];
       label.userData.inRange = midi !== undefined && inRange(midi);
@@ -540,7 +622,7 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
   };
 
   const tintLabels = () => {
-    const notes = whiteWindow(octave);
+    const notes = windowNotes(octave);
     labelMeshes.forEach((label, i) => {
       const mat = label.material as MeshBasicMaterial;
       const target = targets.includes(notes[i]);
@@ -548,6 +630,24 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
       mat.opacity = (target ? 1 : 0.6) * focus;
       label.visible = focus > 0.02 && label.userData.inRange !== false;
     });
+  };
+
+  const placeCues = () => {
+    for (const cue of cues.values()) {
+      cue.removeFromParent();
+      cue.material.map?.dispose();
+      cue.material.dispose();
+    }
+    cues.clear();
+    for (const midi of targets) {
+      const rig = rigs.get(midi);
+      if (!rig) continue;
+      const cue = makeKeyCue(noteName(midi), keyInstruction(midi, octave), o.font);
+      // These positions are local to the same pivot as the physical key mesh.
+      cue.position.set(0, rig.black ? 0.066 : 0.052, rig.black ? 0.248 : 0.31);
+      rig.pivot.add(cue);
+      cues.set(midi, cue);
+    }
   };
 
   placeLabels();
@@ -591,16 +691,26 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
     setOctave(oct) {
       octave = oct;
       placeLabels();
+      placeCues();
       invalidate();
     },
     setTargets(midis) {
+      if (targets.length === midis.length && targets.every((m, i) => m === midis[i])) return;
       targets = [...midis];
       targetSet = new Set(targets);
       tintLabels();
+      placeCues();
       invalidate();
     },
+    feedback(midi, correct) {
+      feedback.set(midi, { correct, until: performance.now() + (correct ? 330 : 230) });
+      invalidate();
+    },
+    clearFeedback() { feedback.clear(); invalidate(); },
+    zoomBy: (factor) => zoomAt(factor),
     setView(v) {
       view = v;
+      unzoom();
       cam.taz = VIEWS[v].az;
       cam.tel = VIEWS[v].el;
       o.onViewChange?.(v !== "piano");
@@ -608,6 +718,7 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
     },
     resetView() {
       view = "piano";
+      unzoom();
       cam.taz = AZ0;
       cam.tel = EL0;
       o.onViewChange?.(false);
@@ -618,6 +729,7 @@ export function createPianoScene(o: PianoSceneOptions): PianoSceneHandle {
       cancelAnimationFrame(raf);
       ro.disconnect();
       o.canvas.removeEventListener("pointerdown", onDown);
+      o.canvas.removeEventListener("wheel", onWheel);
       o.canvas.removeEventListener("pointermove", onMove);
       o.canvas.removeEventListener("pointerup", onUp);
       o.canvas.removeEventListener("pointercancel", onUp);

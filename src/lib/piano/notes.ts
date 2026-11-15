@@ -40,42 +40,32 @@ const WHITE_KEYS: Record<string, number> = {
   Digit1: 0, Digit2: 2, Digit3: 4, Digit4: 5, Digit5: 7, Digit6: 9, Digit7: 11, Digit8: 12,
   Numpad1: 0, Numpad2: 2, Numpad3: 4, Numpad4: 5, Numpad5: 7, Numpad6: 9, Numpad7: 11, Numpad8: 12,
 };
-/** Shift + number key → the black key just above that white key. 3, 7 and 8 have none. */
-const BLACK_KEYS: Record<string, number> = { Digit1: 1, Digit2: 3, Digit4: 6, Digit5: 8, Digit6: 10 };
+/** Bottom-row letter key → a black key: X C · V B N, laid out like the black keys themselves. */
+const BLACK_KEYS: Record<string, number> = { KeyX: 1, KeyC: 3, KeyV: 6, KeyB: 8, KeyN: 10 };
 
 export const OCTAVE_DOWN = "BracketLeft";
 export const OCTAVE_UP = "BracketRight";
 
-export type KeyResolution =
-  | { kind: "note"; midi: number }
-  /** A number key that has no black key above it (Shift + 3, 7, 8). */
-  | { kind: "no-black"; digit: number }
-  | { kind: "none" };
+export type KeyResolution = { kind: "note"; midi: number } | { kind: "none" };
 
 /** Resolve a physical key to the note it plays in `octave`. */
-export function resolveKey(code: string, shift: boolean, octave: number): KeyResolution {
-  const c = cOf(clampOctave(octave));
-  if (shift && code.startsWith("Digit")) {
-    const off = BLACK_KEYS[code];
-    if (off === undefined) return code in WHITE_KEYS ? { kind: "no-black", digit: Number(code.slice(5)) } : { kind: "none" };
-    return { kind: "note", midi: c + off };
-  }
-  const off = WHITE_KEYS[code];
-  return off === undefined ? { kind: "none" } : { kind: "note", midi: c + off };
+export function resolveKey(code: string, octave: number): KeyResolution {
+  const off = WHITE_KEYS[code] ?? BLACK_KEYS[code];
+  return off === undefined ? { kind: "none" } : { kind: "note", midi: cOf(clampOctave(octave)) + off };
 }
 
 /**
- * The key hint for a note in the current octave: "1", "⇧1", or null when the
- * note is outside the eight-key window.
+ * The key hint for a note in the current octave: "1", "X", or null when the
+ * note is outside the thirteen-key window.
  */
 export function shortcutFor(midi: number, octave: number): string | null {
   const off = midi - cOf(clampOctave(octave));
   for (const [code, o] of Object.entries(WHITE_KEYS)) if (code.startsWith("Digit") && o === off) return code.slice(5);
-  for (const [code, o] of Object.entries(BLACK_KEYS)) if (o === off) return `⇧${code.slice(5)}`;
+  for (const [code, o] of Object.entries(BLACK_KEYS)) if (o === off) return code.slice(3);
   return null;
 }
 
-/** The thirteen notes reachable from the number keys in an octave, low to high. */
+/** The thirteen notes reachable from the computer keys in an octave, low to high. */
 export function windowNotes(octave: number): number[] {
   const c = cOf(clampOctave(octave));
   return Array.from({ length: 13 }, (_, i) => c + i);

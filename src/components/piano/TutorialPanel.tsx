@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ATTRIBUTION } from "@/lib/piano/samples";
 import Explore from "./Explore";
 import Lessons from "./Lessons";
 import Melodies from "./Melodies";
+import { usePiano } from "./context";
 
 const MODES = [
   { id: "explore", n: "01", label: "Explore" },
@@ -14,8 +15,10 @@ const MODES = [
 type Mode = (typeof MODES)[number]["id"];
 
 /** Right-hand guide: explore notes, guided lessons, melody practice. */
-export default function TutorialPanel() {
+export default function TutorialPanel({ visible = true }: { visible?: boolean }) {
   const [mode, setMode] = useState<Mode>("explore");
+  const { setTargets } = usePiano();
+  useEffect(() => { if (!visible) setTargets([]); }, [visible, setTargets]);
 
   return (
     <div className="flex h-full flex-col">
@@ -45,13 +48,13 @@ export default function TutorialPanel() {
       <div className="min-h-0 flex-1 overflow-y-auto px-[var(--gutter)] py-5 lg:px-6">
         {/* All three stay mounted so progress survives switching; only the visible one listens. */}
         <div hidden={mode !== "explore"}>
-          <Explore active={mode === "explore"} />
+          <Explore active={visible && mode === "explore"} />
         </div>
         <div hidden={mode !== "lessons"}>
-          <Lessons active={mode === "lessons"} />
+          <Lessons active={visible && mode === "lessons"} />
         </div>
         <div hidden={mode !== "melodies"}>
-          <Melodies active={mode === "melodies"} />
+          <Melodies active={visible && mode === "melodies"} />
         </div>
       </div>
 

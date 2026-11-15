@@ -77,3 +77,26 @@ test("live input on the same key is not cut by a replay", async () => {
   ctrl.release("key:Digit1");
   assert.deepEqual(ctrl.active, []);
 });
+
+test("practice receives live input even when the demo owns the same key", async () => {
+  const { engine } = fakeEngine();
+  const ctrl = new PianoController(engine);
+  const input: NoteEvent[] = [];
+  ctrl.onInput((e) => input.push(e));
+  const p = new Player(ctrl, "demo");
+  p.play([
+    { t: 0, type: "on", midi: 60, velocity: 0.7, octave: 4 },
+    { t: 1, type: "off", midi: 60 },
+  ]);
+  await new Promise((r) => setTimeout(r, 90));
+  assert.deepEqual(ctrl.liveActive, [], "scheduled/demo notes never count as a learner chord");
+  ctrl.press("key:Digit1", 60, 0.8, "key");
+  assert.deepEqual(ctrl.liveActive, [60]);
+  ctrl.press("key:Digit1", 60, 0.8, "key");
+  assert.equal(input.length, 1, "a held key does not repeat");
+  ctrl.release("key:Digit1");
+  assert.deepEqual(input.map((e) => [e.type, e.midi]), [["on", 60], ["off", 60]]);
+  assert.deepEqual(ctrl.liveActive, []);
+  p.stop();
+  assert.deepEqual(ctrl.active, []);
+});

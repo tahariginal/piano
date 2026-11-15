@@ -10,8 +10,14 @@ export type Step =
 
 export type Lesson = { id: string; n: string; title: string; summary: string; steps: Step[] };
 
-export type MelodyNote = { midi: number; beats: number };
-export type Melody = { id: string; title: string; credit: string; bpm: number; notes: MelodyNote[] };
+/** MIDI includes pitch and octave (60 = C4). Timing is measured in beats.
+ * `at` can leave a rest before an event; otherwise events follow each other.
+ * `duration` controls sounding length; `beats` controls time until the next event.
+ * `chord` adds notes struck at the same time as `midi`.
+ */
+export type MelodyNote = { midi: number; beats: number; at?: number; duration?: number; chord?: number[] };
+export type Melody = { id: string; title: string; credit: string; difficulty: "Beginner" | "Easy"; bpm: number; notes: MelodyNote[] };
+export const melodyPitches = (n: MelodyNote): number[] => [...new Set([n.midi, ...(n.chord ?? [])])];
 
 const C4 = 60, Cs4 = 61, D4 = 62, Ds4 = 63, E4 = 64, F4 = 65, Fs4 = 66, G4 = 67, Gs4 = 68, A4 = 69, As4 = 70, B4 = 71, C5 = 72;
 
@@ -60,13 +66,13 @@ export const lessons: Lesson[] = [
     id: "black-keys",
     n: "04",
     title: "The black keys",
-    summary: "Hold Shift to play the black key just above a white key.",
+    summary: "The bottom-row letters X C V B N play the black keys, in the same order as on the piano.",
     steps: [
-      seq("Shift + 1 — Do♯", Cs4),
-      seq("Shift + 2 — Re♯", Ds4),
-      seq("Shift + 4 — Fa♯", Fs4),
-      seq("Shift + 5 and Shift + 6 — Sol♯, La♯", Gs4, As4),
-      seq("Walk up: 1, ⇧1, 2, ⇧2, 3", C4, Cs4, D4, Ds4, E4),
+      seq("X — Do♯", Cs4),
+      seq("C — Re♯", Ds4),
+      seq("V — Fa♯", Fs4),
+      seq("B and N — Sol♯, La♯", Gs4, As4),
+      seq("Walk up: 1, X, 2, C, 3", C4, Cs4, D4, Ds4, E4),
     ],
   },
   {
@@ -99,7 +105,24 @@ const n = (midi: number, beats = 1): MelodyNote => ({ midi, beats });
 
 export const melodies: Melody[] = [
   {
+    id: "despacito-excerpt",
+    title: "Despacito · short excerpt",
+    credit: "Luis Fonsi & Daddy Yankee · simplified in A minor",
+    difficulty: "Beginner",
+    bpm: 80,
+    // Brief practice excerpt, transposed down two semitones to use only white
+    // keys in one keyboard window. Rhythm simplified for beginner practice.
+    // Pitch reference: https://www.piano-keyboard-guide.com/despacito-piano-notes-justin-bieber-luis-fonsi-daddy-yankee-easy-piano-tutorial-how-to-play/
+    notes: [
+      n(C5, 1.5), n(B4, 0.5), n(A4, 0.75), n(E4, 0.25),
+      n(E4, 0.5), n(E4, 0.5), n(E4, 0.5), n(E4, 0.5),
+      n(A4, 0.5), n(A4, 0.5), n(A4, 0.5), n(A4, 0.5),
+      n(A4, 0.5), n(G4, 0.5), n(A4, 0.5), n(F4, 1.5),
+    ],
+  },
+  {
     id: "twinkle",
+    difficulty: "Beginner",
     title: "Twinkle Twinkle Little Star",
     credit: "Traditional · public domain",
     bpm: 96,
@@ -114,6 +137,7 @@ export const melodies: Melody[] = [
   },
   {
     id: "ode",
+    difficulty: "Easy",
     title: "Ode to Joy",
     credit: "Beethoven, Symphony No. 9 · public domain",
     bpm: 104,
@@ -126,6 +150,7 @@ export const melodies: Melody[] = [
   },
   {
     id: "warm-up",
+    difficulty: "Beginner",
     title: "Five-finger warm-up",
     credit: "Original exercise",
     bpm: 112,
@@ -133,6 +158,7 @@ export const melodies: Melody[] = [
   },
   {
     id: "skips",
+    difficulty: "Easy",
     title: "Steps and skips",
     credit: "Original exercise",
     bpm: 108,
@@ -140,9 +166,30 @@ export const melodies: Melody[] = [
   },
   {
     id: "chromatic",
+    difficulty: "Easy",
     title: "Chromatic climb",
-    credit: "Original exercise · uses Shift",
+    credit: "Original exercise · uses the black keys",
     bpm: 96,
     notes: [n(C4), n(Cs4), n(D4), n(Ds4), n(E4), n(F4), n(Fs4), n(G4, 2), n(Fs4), n(F4), n(E4), n(Ds4), n(D4), n(Cs4), n(C4, 2)],
+  },
+  {
+    id: "little-chords",
+    title: "A little harmony",
+    credit: "Original exercise · hold notes together",
+    difficulty: "Easy",
+    bpm: 72,
+    notes: [
+      { ...n(C4, 2), chord: [E4, G4] }, n(D4), n(E4),
+      { ...n(F4, 2), chord: [A4, C5] }, n(E4), n(D4),
+      { ...n(C4, 3), chord: [E4, G4] },
+    ],
+  },
+  {
+    id: "octave-echo",
+    title: "Octave echo",
+    credit: "Original exercise · change octave with [ and ]",
+    difficulty: "Easy",
+    bpm: 72,
+    notes: [n(C4), n(E4), n(G4, 2), n(C5), n(76), n(79, 2), n(G4), n(E4), n(C4, 2)],
   },
 ];

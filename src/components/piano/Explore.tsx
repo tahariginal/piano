@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { letterName, noteName, octaveOf, shortcutFor, solfege, windowNotes } from "@/lib/piano/notes";
 import { usePiano } from "./context";
 
-/** Explore: every note the number keys reach, lit as it is played. */
+/** Explore: every note the computer keys reach, lit as it is played. */
 export default function Explore({ active: shown }: { active: boolean }) {
   const { active, last, controls, setTargets } = usePiano();
 
@@ -47,7 +47,7 @@ export default function Explore({ active: shown }: { active: boolean }) {
       </div>
 
       <div className="mt-5 flex items-baseline justify-between">
-        <p className="label text-fg-3">Octave {controls.octave} · number keys</p>
+        <p className="label text-fg-3">Octave {controls.octave} · computer keys</p>
         <p className="label text-fg-3">
           <kbd className="text-fg">[</kbd> <kbd className="text-fg">]</kbd> octave
         </p>
@@ -73,7 +73,7 @@ export default function Explore({ active: shown }: { active: boolean }) {
         })}
       </ul>
       <p className="mt-4 text-[0.9rem] leading-snug text-fg-3">
-        Hold <kbd className="label text-fg">Shift</kbd> with 1, 2, 4, 5 or 6 for the black keys. Hold <kbd className="label text-fg">Space</kbd> for the sustain pedal.
+        <kbd className="label text-fg">1</kbd>–<kbd className="label text-fg">8</kbd> play the white keys, <kbd className="label text-fg">X C V B N</kbd> the black keys. Hold <kbd className="label text-fg">Space</kbd> for the sustain pedal.
       </p>
     </div>
   );

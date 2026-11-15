@@ -3,7 +3,8 @@
  * all become the same list of timed events. Times are seconds from the start.
  */
 
-import type { Melody } from "./lessons";
+import { melodyPitches, type Melody } from "./lessons";
+import { octaveOf } from "./notes";
 
 export type TimedEvent =
   | { t: number; type: "on"; midi: number; velocity: number; octave: number }
@@ -15,15 +16,24 @@ export type Recording = { events: TimedEvent[]; duration: number; notes: number 
 const DEMO_VELOCITY = 0.72;
 
 /** Melody → events at its tempo. Notes are slightly detached so repeats re-strike clearly. */
-export function melodyTimeline(m: Melody, octave = 4): TimedEvent[] {
-  const spb = 60 / m.bpm;
+export function melodyTiming(m: Melody, bpm = m.bpm) {
+  let beat = 0;
+  return m.notes.map((n) => {
+    const start = n.at ?? beat;
+    beat = start + n.beats;
+    return { start: start * 60 / bpm, end: beat * 60 / bpm, release: (start + (n.duration ?? n.beats * 0.88)) * 60 / bpm };
+  });
+}
+
+export function melodyTimeline(m: Melody, octave?: number): TimedEvent[] {
   const out: TimedEvent[] = [];
-  let t = 0;
-  for (const n of m.notes) {
-    out.push({ t, type: "on", midi: n.midi, velocity: DEMO_VELOCITY, octave });
-    out.push({ t: t + n.beats * spb * 0.88, type: "off", midi: n.midi });
-    t += n.beats * spb;
-  }
+  const timing = melodyTiming(m);
+  m.notes.forEach((n, i) => {
+    for (const midi of melodyPitches(n)) {
+      out.push({ t: timing[i].start, type: "on", midi, velocity: DEMO_VELOCITY, octave: octave ?? octaveOf(midi) });
+      out.push({ t: timing[i].release, type: "off", midi });
+    }
+  });
   return sortEvents(out);
 }
 

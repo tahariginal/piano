@@ -24,6 +24,10 @@ export class Player {
   private usedPedal = false;
   private onEndFn: (() => void) | null = null;
   playing = false;
+  private audio0 = 0;
+
+  /** The same audio clock that schedules the samples also drives practice cues. */
+  get elapsed() { return this.ctrl.engine.now - this.audio0; }
 
   constructor(ctrl: PianoController, source: "replay" | "demo") {
     this.ctrl = ctrl;
@@ -31,7 +35,7 @@ export class Player {
     this.prefix = `${source}:${++serial}:`;
   }
 
-  play(events: readonly TimedEvent[], onEnd?: () => void) {
+  play(events: readonly TimedEvent[], onEnd?: () => void, duration = timelineEnd(events)) {
     this.stop();
     if (!events.length || !this.ctrl.engine.ready) {
       onEnd?.();
@@ -40,6 +44,7 @@ export class Player {
     this.playing = true;
     this.onEndFn = onEnd ?? null;
     const audio0 = this.ctrl.engine.now + LEAD_IN;
+    this.audio0 = audio0;
     const perf0 = performance.now() + LEAD_IN * 1000;
     const holders = new Map<number, string[]>(); // midi → holders still down, oldest first
     const releasing = new Map<number, { holder: string; id: number; t: number }>(); // midi → release timed, not yet fired
@@ -95,7 +100,7 @@ export class Player {
       if (next >= events.length) {
         window.clearInterval(this.interval);
         this.interval = 0;
-        at(() => this.finish(), timelineEnd(events) + 0.05);
+        at(() => this.finish(), Math.max(duration, timelineEnd(events)) + 0.05);
       }
     };
     pass();

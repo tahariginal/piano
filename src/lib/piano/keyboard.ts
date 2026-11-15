@@ -2,8 +2,7 @@
  * KeyboardController — physical keys → controller holds.
  *
  * Each physical key holds the note it struck under `key:<code>`, so releasing
- * the key always releases that note, whatever happened to Shift or the octave
- * in between.
+ * the key always releases that note, whatever happened to the octave in between.
  */
 
 import type { PianoController } from "./controller";
@@ -12,11 +11,12 @@ import { OCTAVE_DOWN, OCTAVE_UP, resolveKey } from "./notes";
 export type KeyboardHooks = {
   /** First gesture: start or resume audio. */
   onGesture?: () => void;
-  /** Shift + 3/7/8: there is no black key there. */
-  onNoBlackKey?: (digit: number) => void;
+  /** `-` / `=` (or numpad − / +): zoom the view out (-1) or in (1). */
+  onZoom?: (direction: 1 | -1) => void;
 };
 
 const KEY_VELOCITY = 0.78;
+const ZOOM_KEYS: Record<string, 1 | -1> = { Equal: 1, NumpadAdd: 1, Minus: -1, NumpadSubtract: -1 };
 
 /** Typing into a field, or a focused control that uses the key itself. */
 function isEditable(t: EventTarget | null) {
@@ -45,6 +45,11 @@ export function attachKeyboard(ctrl: PianoController, hooks: KeyboardHooks = {})
       if (!e.repeat) ctrl.shiftOctave(e.code === OCTAVE_UP ? 1 : -1);
       return;
     }
+    if (e.code in ZOOM_KEYS) {
+      e.preventDefault();
+      hooks.onZoom?.(ZOOM_KEYS[e.code]); // holding the key keeps zooming
+      return;
+    }
     if (e.code === "Space") {
       if (usesSpace(e.target)) return;
       e.preventDefault();
@@ -55,14 +60,10 @@ export function attachKeyboard(ctrl: PianoController, hooks: KeyboardHooks = {})
       return;
     }
 
-    const r = resolveKey(e.code, e.shiftKey, ctrl.controls.octave);
+    const r = resolveKey(e.code, ctrl.controls.octave);
     if (r.kind === "none") return;
     e.preventDefault();
     if (e.repeat) return; // a held key never re-strikes
-    if (r.kind === "no-black") {
-      hooks.onNoBlackKey?.(r.digit);
-      return;
-    }
     hooks.onGesture?.();
     // Until the samples are decoded and audio runs, a key only starts the engine:
     // the instrument never pretends to play.

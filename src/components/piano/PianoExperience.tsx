@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PianoAudioEngine, type EngineStatus } from "@/lib/piano/audio";
 import { PianoController, type ControlState } from "@/lib/piano/controller";
 import { attachKeyboard } from "@/lib/piano/keyboard";
-import { DEFAULT_OCTAVE } from "@/lib/piano/notes";
+import { DEFAULT_OCTAVE, noteName } from "@/lib/piano/notes";
+import { keyInstruction } from "@/lib/piano/learning";
 import type { PianoSceneHandle, PianoView } from "@/lib/piano/scene";
 import { isLowPower, prefersReducedMotion } from "@/lib/device";
 import { palette } from "@/lib/theme";
@@ -17,6 +18,9 @@ import TutorialPanel from "./TutorialPanel";
 
 type GlState = "loading" | "ready" | "failed";
 
+/** One zoom step: the − / + buttons and the - / = keys. */
+const ZOOM_STEP = 1.25;
+
 export default function PianoExperience() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<PianoSceneHandle | null>(null);
@@ -28,14 +32,37 @@ export default function PianoExperience() {
   const [controls, setControls] = useState<ControlState>({ octave: DEFAULT_OCTAVE, sustain: false, pedal: false });
   const [active, setActive] = useState<readonly number[]>([]);
   const [last, setLast] = useState<LastNote>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [gl, setGl] = useState<GlState>("loading");
   const [moved, setMoved] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const [view, setView] = useState<PianoView>("piano");
   const [panelOpen, setPanelOpen] = useState(true);
   const [volume, setVolume] = useState(80);
   const [reverb, setReverb] = useState(true);
   const [targets, setTargetsState] = useState<readonly number[]>([]);
+  const [keyFeedback, setKeyFeedback] = useState<Record<number, "correct" | "wrong">>({});
+  const feedbackTimers = useRef(new Map<number, number>());
+  const viewRef = useRef<PianoView>("piano");
+  const focusKeyboard = useCallback(() => {
+    viewRef.current = "keys";
+    setView("keys");
+    sceneRef.current?.setView("keys");
+  }, []);
+  const feedbackKey = useCallback((midi: number, correct: boolean) => {
+    sceneRef.current?.feedback(midi, correct);
+    setKeyFeedback((v) => ({ ...v, [midi]: correct ? "correct" : "wrong" }));
+    window.clearTimeout(feedbackTimers.current.get(midi));
+    feedbackTimers.current.set(midi, window.setTimeout(() => {
+      setKeyFeedback((v) => { const next = { ...v }; delete next[midi]; return next; });
+      feedbackTimers.current.delete(midi);
+    }, correct ? 330 : 230));
+  }, []);
+  const clearFeedback = useCallback(() => {
+    feedbackTimers.current.forEach((timer) => window.clearTimeout(timer));
+    feedbackTimers.current.clear();
+    setKeyFeedback({});
+    sceneRef.current?.clearFeedback();
+  }, []);
 
   /** Start or resume audio. Must run inside a user gesture. Stable, so handlers can hold it. */
   const enable = useCallback(() => {
@@ -45,13 +72,6 @@ export default function PianoExperience() {
     c.engine.start().catch(() => {
       /* the engine reports the error through its status */
     });
-  }, []);
-
-  const noticeTimer = useRef(0);
-  const flash = useCallback((msg: string) => {
-    setNotice(msg);
-    window.clearTimeout(noticeTimer.current);
-    noticeTimer.current = window.setTimeout(() => setNotice(null), 2200);
   }, []);
 
   // Audio engine, controller and physical keyboard. Created on the client only.
@@ -71,7 +91,7 @@ export default function PianoExperience() {
     });
     const detach = attachKeyboard(c, {
       onGesture: enable,
-      onNoBlackKey: (d) => flash(`No black key after ${d === 8 ? "high Do" : d === 3 ? "Mi" : "Si"} (${d})`),
+      onZoom: (d) => sceneRef.current?.zoomBy(d > 0 ? ZOOM_STEP : 1 / ZOOM_STEP),
     });
     // Download the recordings now; decoding waits for the first gesture.
     engine.prefetch().catch(() => {});
@@ -90,9 +110,9 @@ export default function PianoExperience() {
       c.dispose();
       engine.dispose();
       coreRef.current = null;
-      window.clearTimeout(noticeTimer.current);
+      feedbackTimers.current.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [enable, flash]);
+  }, [enable]);
 
   // The 3D scene, loaded only on this route and only in the browser.
   useEffect(() => {
@@ -127,12 +147,14 @@ export default function PianoExperience() {
           },
           onLift: (id) => ctrl.release(holder(id)),
           onViewChange: setMoved,
+          onZoom: setZoom,
           onContextLost: (lost) => setGl(lost ? "failed" : "ready"),
         });
         sceneRef.current = handle;
         handle.setOctave(ctrl.controls.octave);
         handle.setSustain(ctrl.controls.sustain || ctrl.controls.pedal);
         handle.setTargets(targetsRef.current);
+        handle.setView(viewRef.current);
         for (const m of ctrl.active) handle.setKey(m, true);
         setGl("ready");
       } catch (err) {
@@ -159,8 +181,8 @@ export default function PianoExperience() {
 
   const ready = status.phase === "ready";
   const value = useMemo<PianoState>(
-    () => ({ ctrl, status, ready, controls, active, last, targets, enable, setTargets }),
-    [ctrl, status, ready, controls, active, last, targets, enable, setTargets],
+    () => ({ ctrl, status, ready, controls, active, last, targets, enable, setTargets, keyFeedback, feedbackKey, clearFeedback, focusKeyboard }),
+    [ctrl, status, ready, controls, active, last, targets, enable, setTargets, keyFeedback, feedbackKey, clearFeedback, focusKeyboard],
   );
 
   return (
@@ -207,6 +229,7 @@ export default function PianoExperience() {
                     disabled={gl !== "ready"}
                     onClick={() => {
                       setView(v);
+                      viewRef.current = v;
                       sceneRef.current?.setView(v);
                     }}
                     title={v === "keys" ? "Close-up on the keyboard: bigger keys, key numbers" : "The whole instrument"}
@@ -216,10 +239,16 @@ export default function PianoExperience() {
                   </button>
                 ))}
               </div>
+              <div className="flex h-9 items-center border border-line" role="group" aria-label="Zoom">
+                <button type="button" aria-label="Zoom out" title="Zoom out (- key, or scroll)" disabled={gl !== "ready"} onClick={() => sceneRef.current?.zoomBy(1 / ZOOM_STEP)} className="h-full px-3 text-fg-2 hover:text-fg disabled:opacity-40">−</button>
+                <span className="label tabular w-11 text-center text-fg-3" aria-live="polite" aria-label={`Zoom ${Math.round(zoom * 100)} percent`}>{Math.round(zoom * 100)}%</span>
+                <button type="button" aria-label="Zoom in" title="Zoom in (= key, or scroll)" disabled={gl !== "ready"} onClick={() => sceneRef.current?.zoomBy(ZOOM_STEP)} className="h-full px-3 text-fg-2 hover:text-fg disabled:opacity-40">+</button>
+              </div>
               <button
                 type="button"
                 onClick={() => {
                   setView("piano");
+                  viewRef.current = "piano";
                   sceneRef.current?.resetView();
                 }}
                 disabled={gl !== "ready" || !moved}
@@ -242,10 +271,17 @@ export default function PianoExperience() {
           <div className="relative h-[54svh] min-h-[18rem] w-full lg:h-auto lg:min-h-0 lg:flex-1">
             <canvas
               ref={canvasRef}
-              aria-label="3D grand piano. Play with the number keys 1 to 8, Shift for black keys, [ and ] to change octave, or click and tap the keys. Drag the background to turn the view."
+              aria-label="3D grand piano. Play the white keys with 1 to 8 and the black keys with X C V B N, [ and ] to change octave, or click and tap the keys. Drag the background to turn the view; scroll, - or = to zoom."
               role="img"
               className={`absolute inset-0 size-full touch-none select-none transition-opacity duration-700 ${gl === "ready" ? "opacity-100" : "opacity-0"}`}
             />
+            {targets.length > 0 && (
+              <div className="pointer-events-none absolute inset-x-4 bottom-3 flex justify-center lg:bottom-24">
+                <p className="border border-accent/40 bg-bg/95 px-3 py-2 text-center text-sm text-accent-light">
+                  Play {targets.map((m) => `${noteName(m)} · ${keyInstruction(m, controls.octave)}`).join(" + ")}
+                </p>
+              </div>
+            )}
             {gl === "failed" && (
               <p className="label absolute inset-x-6 top-1/2 -translate-y-1/2 text-center text-fg-2">
                 The 3D view could not start on this device. The keys below still play.
@@ -269,7 +305,7 @@ export default function PianoExperience() {
               <div className="lg:pointer-events-auto">
                 <RecorderStrip />
               </div>
-              <Readouts notice={notice} />
+              <Readouts />
             </div>
           </div>
         </section>
@@ -282,7 +318,7 @@ export default function PianoExperience() {
           }`}
         >
           <div className={`h-full lg:w-[24rem] ${panelOpen ? "" : "lg:invisible"}`}>
-            <TutorialPanel />
+            <TutorialPanel visible={panelOpen} />
           </div>
         </aside>
       </div>
